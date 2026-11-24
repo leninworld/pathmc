@@ -19,13 +19,12 @@ jobs:
       - run: make docs
       - run: |
           git status --short
-          test -z "$(git status --porcelain -- _freeze)"
+          git diff --quiet -- _freeze
           for f in llms.txt llms-full.txt skill.md; do test -s "great-docs/_site/$f"; done
           P=great-docs/_site/docs/examples/foundations/categorical_predictors.html
           U=great-docs/_site/user-guide/categorical-predictors.html
           grep -c "Numeric codes sort numerically" "$P" "$U"
-          ! grep -q "Integer codes sort as strings" "$P"
-          ! grep -q "Integer codes sort as strings" "$U"
+          if grep -q "Integer codes sort as strings" "$P" "$U"; then exit 1; fi
           grep -c "Migration: numeric level order changed" "$U"
           mkdir -p out && cp "$P" "$U" out/
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
