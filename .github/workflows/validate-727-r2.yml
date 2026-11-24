@@ -1,0 +1,86 @@
+name: Validate PathMC 727 candidate r2
+
+on:
+  push:
+    branches: [validate-727-r2]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+      - run: uv sync --all-extras --locked
+      - run: make check_lint
+
+  test-shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+      - run: uv python install 3.12
+      - run: uv sync --all-extras --locked --python 3.12
+      - name: Run tests
+        env:
+          UV_PYTHON: "3.12"
+          COVERAGE_FILE: coverage-data/.coverage.shard-${{ matrix.group }}
+          GROUP: ${{ matrix.group }}
+          SPLITS: "4"
+        run: |
+          mkdir -p coverage-data
+          make test-shard GROUP="$GROUP" SPLITS="$SPLITS"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: coverage-${{ matrix.group }}
+          path: coverage-data/
+          include-hidden-files: true
+          if-no-files-found: error
+
+  coverage:
+    needs: test-shard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+      - run: uv sync --all-extras --locked
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: coverage-*
+          path: coverage-data
+          merge-multiple: true
+      - run: |
+          uv run --locked --all-extras coverage combine coverage-data
+          uv run --locked --all-extras coverage report
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+      - run: uv sync --all-extras --locked
+      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b
+      - run: make docs
+      - run: |
+          git status --short
+          git diff --quiet -- _freeze
+          for f in llms.txt llms-full.txt skill.md; do test -s "great-docs/_site/$f"; done
+          P=great-docs/_site/docs/examples/foundations/categorical_predictors.html
+          U=great-docs/_site/user-guide/categorical-predictors.html
+          grep -c "Numeric codes sort numerically" "$P" "$U"
+          if grep -q "Integer codes sort as strings" "$P" "$U"; then exit 1; fi
+          grep -c "Migration: numeric level order changed" "$U"
+          mkdir -p out && cp "$P" "$U" out/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: docs-727, path: out/, if-no-files-found: error}
