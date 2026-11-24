@@ -1,0 +1,32 @@
+name: Validate PathMC 727 docs render
+
+on:
+  push:
+    branches: [validate-727-docs]
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+      - run: uv sync --all-extras --locked
+      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b
+      - run: make docs
+      - run: |
+          git status --short
+          test -z "$(git status --porcelain -- _freeze)"
+          for f in llms.txt llms-full.txt skill.md; do test -s "great-docs/_site/$f"; done
+          P=great-docs/_site/docs/examples/foundations/categorical_predictors.html
+          U=great-docs/_site/user-guide/categorical-predictors.html
+          grep -c "Numeric codes sort numerically" "$P" "$U"
+          ! grep -q "Integer codes sort as strings" "$P"
+          ! grep -q "Integer codes sort as strings" "$U"
+          grep -c "Migration: numeric level order changed" "$U"
+          mkdir -p out && cp "$P" "$U" out/
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with: {name: docs-727, path: out/, if-no-files-found: error}
